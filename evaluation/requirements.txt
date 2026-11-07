@@ -1,0 +1,12 @@
+# Evaluation pipeline (compute_mt_metrics.py, paired_comparisons.py, test_evaluation.py)
+# Tested with Python 3.12. transformers / bert-score pinned to the versions in the BERTScore hash in results/run.log.
+numpy
+pandas
+scipy
+statsmodels
+torch
+sentence-transformers
+transformers==4.57.6
+bert-score==0.3.12
+unbabel-comet>=2.2
+setuptools<81          # COMET's torchmetrics still imports pkg_resources

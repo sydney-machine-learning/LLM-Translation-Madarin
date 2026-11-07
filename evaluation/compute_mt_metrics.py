@@ -5,6 +5,8 @@ Metrics (all computed per aligned segment, then averaged per system and corpus):
   * BERTScore precision / recall / F1  (Zhang et al., 2020; roberta-large, layer 17,
     the bert-score default for English).  Candidate = system output, reference = expert.
   * COMET  (Rei et al., 2022; Unbabel/wmt22-comet-da).  Uses source + output + expert reference.
+  * MPNet  cosine similarity A.B / (|A||B|) between the all-mpnet-base-v2 sentence embeddings of
+    the expert translation (A) and the system output (B).
   * CometKiwi (optional, --kiwi; Unbabel/wmt22-cometkiwi-da).  Reference-free: source + output.
     The model is gated on Hugging Face: accept its licence and run `huggingface-cli login` first.
 
@@ -17,8 +19,13 @@ Segmentation / alignment
   system outputs for that unit are the concatenation of their paragraphs over the same source span.
   Alignments are written to results/alignments/ so they can be checked by hand.
 
+Pipeline failures
+  System outputs containing a FAILED_MARKERS string (e.g. '[Translation Failed]', written by the
+  translation notebook on an API error) are not system output: all their metric scores are set to
+  missing (NaN) and `excluded_reason` is filled in.  The row is kept for transparency.
+
 Outputs (in --out, default evaluation/results):
-  segment_scores.csv     one row per corpus x document x segment x system
+  segment_scores.csv     one row per corpus x document x segment x system (passage_id = doc_segment)
   system_scores.csv      mean and 95% bootstrap CI per corpus x system x metric
   metric_correlations.csv  segment-level Pearson / Spearman / Kendall between metrics
   alignments/<doc>.csv   source <-> expert alignment used for every document
@@ -27,6 +34,7 @@ Usage
   python evaluation/compute_mt_metrics.py                # BERTScore + COMET
   python evaluation/compute_mt_metrics.py --kiwi         # + CometKiwi
   python evaluation/compute_mt_metrics.py --limit-docs 1 # quick smoke test
+  python evaluation/compute_mt_metrics.py --only-mpnet   # add MPNet to an existing segment_scores.csv
 """
 import argparse
 import csv
@@ -35,7 +43,6 @@ from itertools import combinations
 
 import numpy as np
 import pandas as pd
-import torch
 from scipy import stats
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -84,7 +91,13 @@ ALIGN_MODEL = 'sentence-transformers/LaBSE'
 BERTSCORE_MODEL = 'roberta-large'
 COMET_MODEL = 'Unbabel/wmt22-comet-da'
 KIWI_MODEL = 'Unbabel/wmt22-cometkiwi-da'
-MAX_GROUP = 3            # max paragraphs merged on either side of one alignment unit
+MPNET_MODEL = 'sentence-transformers/all-mpnet-base-v2'
+# Every metric column this script can produce, in output order.
+ALL_METRICS = ['bertscore_p', 'bertscore_r', 'bertscore_f1', 'comet', 'cometkiwi', 'MPNet']
+# Text written into an output file by the translation pipeline when the API call failed.
+FAILED_MARKERS = ['[Translation Failed]']
+TEXT_COLUMNS = ['corpus', 'doc', 'passage_id', 'system', 'src', 'mt', 'ref', 'excluded_reason']
+MAX_GROUP = 3           # max paragraphs merged on either side of one alignment unit
 MERGE_PENALTY = 0.3      # cost added per extra paragraph in a merge; lower values over-merge because
                          # longer concatenations always embed closer together
 LOW_ALIGN_COSINE = 0.4   # segments below this are listed for manual checking
@@ -108,6 +121,7 @@ def read_paragraphs(path):
 
 
 def device():
+    import torch
     if torch.cuda.is_available():
         return 'cuda'
     if torch.backends.mps.is_available():
@@ -195,7 +209,8 @@ def build_segments(limit_docs, encoder, out_dir):
             for k, ((s0, s1), (r0, r1), sim) in enumerate(alignment):
                 for system in cfg['systems']:
                     rows.append({
-                        'corpus': corpus, 'doc': doc_id, 'segment': k, 'system': system,
+                        'corpus': corpus, 'doc': doc_id, 'segment': k, 'passage_id': f'{doc_id}_{k}',
+                        'system': system,
                         'align_cosine': sim, 'src': ''.join(src[s0:s1]),
                         'mt': ' '.join(hyps[system][s0:s1]), 'ref': ' '.join(ref[r0:r1]),
                     })
@@ -218,7 +233,43 @@ def add_bertscore(df):
     print(f'BERTScore hash: {scorer.hash}')
 
 
+def mpnet_cosine(a, b):
+    """Row-wise cosine similarity A.B / (|A| |B|) between two (n, d) embedding matrices."""
+    a, b = np.asarray(a, dtype=float), np.asarray(b, dtype=float)
+    return (a * b).sum(axis=1) / (np.linalg.norm(a, axis=1) * np.linalg.norm(b, axis=1))
+
+
+def add_mpnet(df):
+    """MPNet cosine similarity between the expert reference (A) and the system output (B)."""
+    import sentence_transformers
+    from sentence_transformers import SentenceTransformer
+    encoder = SentenceTransformer(MPNET_MODEL, device=device())
+    limit = encoder.max_seq_length - 2   # max_seq_length includes the <s> and </s> tokens
+    print(f'MPNet ({MPNET_MODEL}, sentence-transformers {sentence_transformers.__version__}, '
+          f'max_seq_length {encoder.max_seq_length}): {count_truncated(df.mt, encoder.tokenizer, limit)} outputs '
+          f'and {count_truncated(df.ref.drop_duplicates(), encoder.tokenizer, limit)} references are truncated')
+
+    def embed(texts):
+        unique = list(dict.fromkeys(texts))   # encode each distinct text once
+        emb = encoder.encode(unique, batch_size=32, convert_to_numpy=True, show_progress_bar=True)
+        index = {t: k for k, t in enumerate(unique)}
+        return emb[[index[t] for t in texts]]
+
+    df['MPNet'] = mpnet_cosine(embed(df.ref.tolist()), embed(df.mt.tolist()))
+
+
+def mask_failed_translations(df, metrics):
+    """Set every metric to NaN for outputs that are pipeline failures rather than system output."""
+    failed = df.mt.apply(lambda t: any(marker in t for marker in FAILED_MARKERS))
+    df.loc[failed, metrics] = np.nan
+    df['excluded_reason'] = np.where(failed, 'translation_failed', '')
+    for _, row in df[failed].iterrows():
+        print(f'Excluded (translation_failed): {row.system} {row.passage_id}; all metrics set to missing')
+    return df
+
+
 def add_comet(df, model_name, column, use_reference):
+    import torch
     from comet import download_model, load_from_checkpoint
     model = load_from_checkpoint(download_model(model_name))
     tokenizer = model.encoder.tokenizer
@@ -242,13 +293,17 @@ def bootstrap_ci(values, rng):
 
 
 def summarise(df, metrics, out_dir):
+    """System means with bootstrap CIs and metric correlations; missing (NaN) scores are skipped."""
     rng = np.random.default_rng(0)
     rows = []
     for (corpus, system), group in df.groupby(['corpus', 'system'], sort=False):
-        row = {'corpus': corpus, 'system': system, 'n_segments': len(group)}
+        scored = group[metrics].notna().all(axis=1)
+        row = {'corpus': corpus, 'system': system, 'n_segments': int(scored.sum()),
+               'n_excluded': int((~scored).sum())}
         for metric in metrics:
-            lo, hi = bootstrap_ci(group[metric], rng)
-            row[metric] = group[metric].mean()
+            values = group[metric].dropna()
+            lo, hi = bootstrap_ci(values, rng)
+            row[metric] = values.mean()
             row[f'{metric}_ci_low'], row[f'{metric}_ci_high'] = lo, hi
         rows.append(row)
     system_df = pd.DataFrame(rows)
@@ -257,21 +312,41 @@ def summarise(df, metrics, out_dir):
     corr_rows = []
     for corpus, group in [('all', df)] + list(df.groupby('corpus', sort=False)):
         for a, b in combinations(metrics, 2):
+            pair = group[[a, b]].dropna()
             corr_rows.append({
-                'corpus': corpus, 'metric_a': a, 'metric_b': b, 'n': len(group),
-                'pearson': stats.pearsonr(group[a], group[b])[0],
-                'spearman': stats.spearmanr(group[a], group[b])[0],
-                'kendall_tau': stats.kendalltau(group[a], group[b])[0],
+                'corpus': corpus, 'metric_a': a, 'metric_b': b, 'n': len(pair),
+                'pearson': stats.pearsonr(pair[a], pair[b])[0],
+                'spearman': stats.spearmanr(pair[a], pair[b])[0],
+                'kendall_tau': stats.kendalltau(pair[a], pair[b])[0],
             })
     pd.DataFrame(corr_rows).to_csv(os.path.join(out_dir, 'metric_correlations.csv'),
                                    index=False, float_format='%.4f')
 
     print('\n=== System-level means (95% bootstrap CI) ===')
     for corpus, group in system_df.groupby('corpus', sort=False):
-        print(f'\n[{corpus}] n_segments={group.n_segments.iloc[0]}')
+        print(f'\n[{corpus}]')
         for _, row in group.iterrows():
             cells = [f"{m}={row[m]:.4f} [{row[f'{m}_ci_low']:.4f},{row[f'{m}_ci_high']:.4f}]" for m in metrics]
-            print(f"  {row.system:<17} " + '  '.join(cells))
+            excluded = f' ({row.n_excluded} excluded)' if row.n_excluded else ''
+            print(f"  {row.system:<17} n={row.n_segments}{excluded}  " + '  '.join(cells))
+
+
+def read_segment_scores(path):
+    """Read segment_scores.csv without turning texts such as 'NA' into missing values."""
+    header = pd.read_csv(path, nrows=0, encoding='utf-8-sig').columns
+    metric_cols = [c for c in header if c in ALL_METRICS]
+    df = pd.read_csv(path, encoding='utf-8-sig', keep_default_na=False,
+                     na_values={c: [''] for c in metric_cols})
+    if 'passage_id' not in df.columns:
+        df.insert(df.columns.get_loc('segment') + 1, 'passage_id', df.doc + '_' + df.segment.astype(str))
+    return df
+
+
+def write_segment_scores(df, metrics, out_dir):
+    front = [c for c in ['corpus', 'doc', 'segment', 'passage_id', 'system', 'align_cosine', 'src', 'mt', 'ref']
+             if c in df.columns]
+    df = df[front + metrics + ['excluded_reason']]
+    df.to_csv(os.path.join(out_dir, 'segment_scores.csv'), index=False, encoding='utf-8-sig', float_format='%.4f')
 
 
 def main():
@@ -279,22 +354,35 @@ def main():
     parser.add_argument('--out', default=os.path.join(REPO_ROOT, 'evaluation', 'results'))
     parser.add_argument('--kiwi', action='store_true', help='also compute reference-free CometKiwi (gated model)')
     parser.add_argument('--limit-docs', type=int, default=None, help='only the first N documents of each corpus')
+    parser.add_argument('--only-mpnet', action='store_true',
+                        help='read the existing segment_scores.csv in --out, (re)compute only MPNet and rewrite '
+                             'the summaries; alignments, BERTScore and COMET are kept as they are')
     args = parser.parse_args()
     os.makedirs(args.out, exist_ok=True)
 
-    from sentence_transformers import SentenceTransformer
-    encoder = SentenceTransformer(ALIGN_MODEL, device=device())
-    df = build_segments(args.limit_docs, encoder, args.out)
-    del encoder
+    if args.only_mpnet:
+        path = os.path.join(args.out, 'segment_scores.csv')
+        df = read_segment_scores(path)
+        print(f'Read {len(df)} rows from {path}')
+        add_mpnet(df)
+        metrics = [m for m in ALL_METRICS if m in df.columns]
+    else:
+        from sentence_transformers import SentenceTransformer
+        encoder = SentenceTransformer(ALIGN_MODEL, device=device())
+        df = build_segments(args.limit_docs, encoder, args.out)
+        del encoder
 
-    metrics = ['bertscore_p', 'bertscore_r', 'bertscore_f1', 'comet']
-    add_bertscore(df)
-    add_comet(df, COMET_MODEL, 'comet', use_reference=True)
-    if args.kiwi:
-        add_comet(df, KIWI_MODEL, 'cometkiwi', use_reference=False)
-        metrics.append('cometkiwi')
+        metrics = ['bertscore_p', 'bertscore_r', 'bertscore_f1', 'comet']
+        add_bertscore(df)
+        add_comet(df, COMET_MODEL, 'comet', use_reference=True)
+        if args.kiwi:
+            add_comet(df, KIWI_MODEL, 'cometkiwi', use_reference=False)
+            metrics.append('cometkiwi')
+        add_mpnet(df)
+        metrics.append('MPNet')
 
-    df.to_csv(os.path.join(args.out, 'segment_scores.csv'), index=False, encoding='utf-8-sig', float_format='%.4f')
+    mask_failed_translations(df, metrics)
+    write_segment_scores(df, metrics, args.out)
     summarise(df, metrics, args.out)
     print(f'\nResults written to {args.out}')
 

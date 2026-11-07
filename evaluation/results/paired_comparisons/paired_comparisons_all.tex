@@ -1,0 +1,24 @@
+\begin{table*}[htbp]
+\centering
+\caption{Paired comparisons between translation systems (all corpora pooled). Two-sided Wilcoxon signed-rank tests on passage-level scores; differences are the first system minus the second, so positive values favour the first system. $p$-values are Holm-adjusted within metric (6 comparisons). Effect size is the matched-pairs rank-biserial correlation. $N$ = number of paired passages (402--403).}
+\label{tab:paired_tests}
+\small
+\begin{tabular}{llrrrrrr}
+\hline
+\textbf{Metric} & \textbf{Comparison} & \textbf{$N$} & \textbf{Mean Difference} & \textbf{Median Difference} & \textbf{Test statistic} & \textbf{Adjusted $p$} & \textbf{Effect size} \\
+\hline
+MPNet & DeepSeek vs. Google Translate & 402 & 0.0598 & 0.0448 & 12951.0 & $<0.001$ & 0.677 \\
+MPNet & DeepSeek vs. GPT-4 & 402 & 0.0441 & 0.0230 & 15406.0 & $<0.001$ & 0.602 \\
+MPNet & DeepSeek vs. GPT-4o & 402 & 0.0350 & 0.0161 & 21376.5 & $<0.001$ & 0.439 \\
+MPNet & Google Translate vs. GPT-4 & 403 & $-0.0156$ & $-0.0110$ & 25922.5 & $<0.001$ & $-0.347$ \\
+MPNet & Google Translate vs. GPT-4o & 403 & $-0.0248$ & $-0.0205$ & 22250.5 & $<0.001$ & $-0.442$ \\
+MPNet & GPT-4 vs. GPT-4o & 403 & $-0.0091$ & $-0.0046$ & 31873.5 & 0.002 & $-0.181$ \\
+COMET & DeepSeek vs. Google Translate & 402 & 0.0626 & 0.0626 & 5875.0 & $<0.001$ & 0.853 \\
+COMET & DeepSeek vs. GPT-4 & 402 & 0.0166 & 0.0171 & 17036.0 & $<0.001$ & 0.560 \\
+COMET & DeepSeek vs. GPT-4o & 402 & 0.0036 & 0.0034 & 32952.5 & 0.016 & 0.140 \\
+COMET & Google Translate vs. GPT-4 & 403 & $-0.0458$ & $-0.0435$ & 8598.0 & $<0.001$ & $-0.785$ \\
+COMET & Google Translate vs. GPT-4o & 403 & $-0.0589$ & $-0.0598$ & 7083.0 & $<0.001$ & $-0.822$ \\
+COMET & GPT-4 vs. GPT-4o & 403 & $-0.0130$ & $-0.0141$ & 18270.5 & $<0.001$ & $-0.530$ \\
+\hline
+\end{tabular}
+\end{table*}
