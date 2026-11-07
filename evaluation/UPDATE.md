@@ -3,6 +3,18 @@
 Source: [issue #2, "Metric Evaluation and Comparison Scripts"](https://github.com/sydney-machine-learning/LLM-Translation-Madarin/issues/2),
 branch `2-metric-evaluation-and-comparison-scripts`.
 
+## Status (2026-11-07)
+
+Implemented. Decisions: U1, U2, U3, U4 and U7 were confirmed by the authors, and so were U5 and U8. U6 and U9–U12 use the proposed defaults below, and U9 is now measured.
+
+- `compute_mt_metrics.py`: adds the `MPNet` column, `passage_id`, `excluded_reason` and `--only-mpnet`,
+  masks pipeline failures, and makes the summaries NaN-safe.
+- `paired_comparisons.py`: implements Wilcoxon + Holm (6 per metric) + rank-biserial r, and writes the
+  4 scopes to `results/paired_comparisons/` as CSV + TeX.
+- `test_evaluation.py`: 10 synthetic tests and a `--smoke` end-to-end run. Both pass.
+- `requirements.txt`, `METRICS.md` and `README.md` are updated. The results were regenerated, and
+  `run.log` was appended.
+
 ## What the issue asks for
 
 1. **MPNet cosine similarity** between each machine-translated passage and its aligned expert passage,
@@ -178,11 +190,11 @@ It runs with plain `python evaluation/test_evaluation.py`. Pytest is optional; t
 | U2 | ~~**Which effect size?**~~ **Resolved:** matched-pairs rank-biserial correlation for the Wilcoxon test. | Implemented as described in Step 2. |
 | U3 | ~~**Multiplicity family.**~~ **Resolved:** Holm correction within each metric, over its 6 pairwise comparisons, applied separately in each scope. | Each table is self-contained, and MPNet and COMET are corrected independently. Each caption states "Holm-adjusted within metric (6 comparisons)". |
 | U4 | ~~**Pooled or per-corpus?**~~ **Resolved:** produce both, in separate files. | One CSV + TeX pair each for `all`, `news`, `red_mansions` and `red_sorghum` in `results/paired_comparisons/` (see Step 2). |
-| U5 | **Where to report N.** The issue says "report the number of paired passages" but the table has no N column. Because of U7, N now **varies within the pooled and news tables**: DeepSeek pairs are 402 vs 403 pooled and 43 vs 44 for news. | Add an `N` column to every LaTeX table, which changes the layout from `llrrrrr` to `llrrrrrr`, for consistency across the four files. Alternative: keep the issue's layout and give the N values in a caption footnote. |
+| U5 | ~~**Where to report N.**~~ **Resolved (confirmed):** an `N` column in every LaTeX table (`llrrrrrr`), because N varies within the pooled and news tables (402/403, 43/44). | The caption also gives the N range. |
 | U6 | **Definition of "passage".** The issue text says "paragraph". The pipeline's unit is the aligned segment, which can be 1–3 merged source/expert paragraphs. | Use the aligned segment as the passage, because it is the only unit with a matched expert reference. Say so in the paper. |
 | U7 | ~~**Known bad outputs.**~~ **Resolved:** the `[Translation Failed]` row (DeepSeek, news_2 segment 6) is set to missing (NaN for all metrics). The refusal and the repetition loops are kept as genuine system output. | Implemented in Step 1. Through the per-pair exclusion rule, the passage drops out of the 3 DeepSeek comparisons only: N is 402 pooled and 43 for news, against 403 and 44 for the other pairs. |
-| U8 | **Re-run or append?** A full re-run takes a long time and downloads about 5 GB. Recomputing could also shift COMET or BERTScore slightly (different library versions or hardware). | Append MPNet to the existing `segment_scores.csv` (`--only-mpnet`), so the reported COMET and BERTScore numbers stay unchanged. Check reproducibility with the smoke test. |
-| U9 | **Truncation.** all-mpnet-base-v2 reads at most 384 word pieces, fewer than BERTScore and COMET (512). Long literary segments will be truncated more. | Report the count, as for the other metrics. Do not chunk, because chunk-averaging would change the metric's definition. Revisit if the count is large. |
+| U8 | ~~**Re-run or append?**~~ **Resolved (confirmed):** MPNet was appended with `--only-mpnet`. Existing BERTScore and COMET values are numerically identical; only the masked row became NaN. | Bootstrap CIs shift in the 4th decimal place, because the extra metric changes the order of random draws (seed 0). |
+| U9 | **Truncation.** all-mpnet-base-v2 reads at most 384 word pieces, fewer than BERTScore and COMET (512). | Measured: 85 of 1,612 outputs and 40 references are truncated (about 5%). Reported, not chunked. |
 | U10 | **Scope of "all the tables of results".** Does this mean only `evaluation/results` and METRICS.md, or also the paper's LaTeX tables and the older sentiment and "semantic similarity compare table" outputs? | Only the `evaluation/` pipeline outputs and docs. The older scripts measure different things (corpus-level MiniLM, system-vs-system MPNet) and are left as they are. |
 | U11 | **Test statistic.** scipy's two-sided Wilcoxon reports W = min(R⁺, R⁻). Some papers report a z-value instead. | Report W. If needed, add z, computed from the normal approximation, to the CSV. |
 | U12 | **CometKiwi.** Include it in the paired tests if the column is present? | No. The issue lists only MPNet and COMET. The script will accept `--metrics` so it can be added later. |
