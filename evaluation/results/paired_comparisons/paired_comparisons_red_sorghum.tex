@@ -1,0 +1,24 @@
+\begin{table*}[htbp]
+\centering
+\caption{Paired comparisons between translation systems (Red Sorghum). Two-sided Wilcoxon signed-rank tests on passage-level scores; differences are the first system minus the second, so positive values favour the first system. $p$-values are Holm-adjusted within metric (6 comparisons). Effect size is the matched-pairs rank-biserial correlation. $N=254$ paired passages.}
+\label{tab:paired_tests_red_sorghum}
+\small
+\begin{tabular}{llrrrrrr}
+\hline
+\textbf{Metric} & \textbf{Comparison} & \textbf{$N$} & \textbf{Mean Difference} & \textbf{Median Difference} & \textbf{Test statistic} & \textbf{Adjusted $p$} & \textbf{Effect size} \\
+\hline
+MPNet & DeepSeek vs. Google Translate & 254 & 0.0634 & 0.0507 & 5651.5 & $<0.001$ & 0.645 \\
+MPNet & DeepSeek vs. GPT-4 & 254 & 0.0533 & 0.0281 & 5803.0 & $<0.001$ & 0.618 \\
+MPNet & DeepSeek vs. GPT-4o & 254 & 0.0445 & 0.0172 & 7975.0 & $<0.001$ & 0.466 \\
+MPNet & Google Translate vs. GPT-4 & 254 & $-0.0101$ & $-0.0112$ & 11421.0 & $<0.001$ & $-0.272$ \\
+MPNet & Google Translate vs. GPT-4o & 254 & $-0.0189$ & $-0.0167$ & 9993.5 & $<0.001$ & $-0.363$ \\
+MPNet & GPT-4 vs. GPT-4o & 254 & $-0.0087$ & $-0.0036$ & 13178.0 & 0.072 & $-0.132$ \\
+COMET & DeepSeek vs. Google Translate & 254 & 0.0608 & 0.0592 & 3051.5 & $<0.001$ & 0.809 \\
+COMET & DeepSeek vs. GPT-4 & 254 & 0.0207 & 0.0186 & 6577.0 & $<0.001$ & 0.567 \\
+COMET & DeepSeek vs. GPT-4o & 254 & 0.0093 & 0.0045 & 10698.0 & $<0.001$ & 0.284 \\
+COMET & Google Translate vs. GPT-4 & 254 & $-0.0401$ & $-0.0369$ & 4810.0 & $<0.001$ & $-0.696$ \\
+COMET & Google Translate vs. GPT-4o & 254 & $-0.0516$ & $-0.0519$ & 3987.0 & $<0.001$ & $-0.746$ \\
+COMET & GPT-4 vs. GPT-4o & 254 & $-0.0114$ & $-0.0116$ & 8623.0 & $<0.001$ & $-0.432$ \\
+\hline
+\end{tabular}
+\end{table*}

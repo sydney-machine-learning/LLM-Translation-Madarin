@@ -32,6 +32,9 @@ This project analyzes the translation quality of multiple translation systems by
 - **BERTScore** precision / recall / F1 against the expert translation (`roberta-large`)
 - **COMET** (`Unbabel/wmt22-comet-da`) using source, output and expert reference
 - Optional reference-free **CometKiwi** (`--kiwi`)
+- **MPNet** cosine similarity (`all-mpnet-base-v2`) between each system output and the expert translation
+- Paired **Wilcoxon signed-rank tests** between systems for MPNet and COMET (`evaluation/paired_comparisons.py`),
+  Holm-adjusted, with rank-biserial effect sizes, pooled and per corpus
 - Expert paragraphs are aligned to the source with a LaBSE-based monotonic aligner; scores are
   per aligned segment, aggregated with 95% bootstrap confidence intervals
 - See [`evaluation/METRICS.md`](evaluation/METRICS.md) for exactly what every script computes
@@ -91,8 +94,12 @@ LLM-Translation-Madarin/
 │   ├── translation_similarity_analysis.py
 │   └── *.xlsx                          # Similarity comparison results
 │
-├── evaluation/                         # BERTScore + COMET evaluation
-│   ├── compute_mt_metrics.py
+├── evaluation/                         # BERTScore + COMET + MPNet evaluation
+│   ├── compute_mt_metrics.py           # per-segment metrics and system summaries
+│   ├── paired_comparisons.py           # paired significance tests -> CSV + LaTeX tables
+│   ├── test_evaluation.py              # synthetic tests (+ --smoke end-to-end run)
+│   ├── requirements.txt
+│   ├── results/                        # segment/system scores, correlations, alignments, paired_comparisons/
 │   └── METRICS.md                      # Metric documentation / audit
 │
 ├── plot/                               # Generated visualizations
@@ -147,14 +154,18 @@ This will:
 - Generate comprehensive visualizations
 - Output detailed statistical reports
 
-### 3. BERTScore and COMET Evaluation
+### 3. BERTScore, COMET and MPNet Evaluation
 
 ```bash
-pip install "unbabel-comet>=2.2" bert-score sentence-transformers pandas scipy
+pip install -r evaluation/requirements.txt
 python evaluation/compute_mt_metrics.py            # add --kiwi for reference-free CometKiwi
+                                                   # --only-mpnet adds MPNet to existing results
+python evaluation/paired_comparisons.py            # paired tests between systems
+python evaluation/test_evaluation.py [--smoke]     # tests; --smoke runs the pipeline on one document per corpus
 ```
 
-Writes `evaluation/results/{segment_scores,system_scores,metric_correlations}.csv` and per-document alignments.
+Writes `evaluation/results/{segment_scores,system_scores,metric_correlations}.csv`, per-document alignments, and
+`evaluation/results/paired_comparisons/paired_comparisons_{all,news,red_mansions,red_sorghum}.{csv,tex}`.
 
 ### 4. Sentence-Level Similarity Analysis
 
